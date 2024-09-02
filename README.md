@@ -1,1 +1,1 @@
-# letter-game-backend
+# letter-game
