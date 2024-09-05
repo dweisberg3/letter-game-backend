@@ -5,28 +5,29 @@ from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
-@app.route('/click', methods=['GET'])
-def handle_click():
-    print("got here!")
-    print(request.headers)
-    data = {
-        'message' : 'hello from the backend!'
-    }
-    return jsonify(data)
+# @app.route('/click', methods=['GET'])
+# def handle_click():
+#     print("got here!")
+#     print(request.headers)
+#     data = {
+#         'message' : 'hello from the backend!'
+#     }
+#     return jsonify(data)
 
-@app.route('/', methods=['GET'])
-def home():
-    return render_template('index.html')
+# @app.route('/', methods=['GET'])
+# def home():
+#     return render_template('index.html')
 
 
 @app.route('/login', methods=['POST'])
 def login():
     username  = request.form.get('username')
     password  = request.form.get('password')
-    results = authenticate_user(username,password)
+    # results = authenticate_user(username,password)
     conn      = sqlite3.connect('letter-game.db')
     if(username == "admin" and password == "admin"):
-         return render_template('users.html')
+         return jsonify({"message":"Admin"})
+    return jsonify({"message":"Regular"})
 
 @app.route('/create_user', methods=['POST'])
 def create_account():
@@ -74,13 +75,27 @@ def create_account():
 def get_users():
     conn = sqlite3.connect('letter-game.db')
     cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users
+                    (id INTEGER PRIMARY KEY, firstname TEXT, lastname TEXT, grade TEXT, username TEXT, password TEXT)''')
     cursor.execute('SELECT * from users')
   
     # cursor.execute('SELECT * FROM users')
     # print(cursor.fetchall())
-    al = cursor.fetchall()
+    users = []
+    result = cursor.fetchall()
+    for el in result:
+        user = {
+            "id": el[0],
+            "firstname": el[1],
+            "lastname":el[2],
+            "grade":el[3],
+            "username":el[4],
+            "password":el[5]
+
+        }
+        users.append(user)
     # print(al)
-    return jsonify(al)
+    return jsonify(users)
 
 @app.route('/gameover', methods=['POST'])
 def recordNewScore():
