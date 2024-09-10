@@ -5,29 +5,18 @@ from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
-# @app.route('/click', methods=['GET'])
-# def handle_click():
-#     print("got here!")
-#     print(request.headers)
-#     data = {
-#         'message' : 'hello from the backend!'
-#     }
-#     return jsonify(data)
-
-# @app.route('/', methods=['GET'])
-# def home():
-#     return render_template('index.html')
-
 
 @app.route('/login', methods=['POST'])
 def login():
     username  = request.form.get('username')
     password  = request.form.get('password')
-    # results = authenticate_user(username,password)
-    conn      = sqlite3.connect('letter-game.db')
-    if(username == "admin" and password == "admin"):
-         return jsonify({"message":"Admin"})
-    return jsonify({"message":"Regular"})
+    if(username == "binyan" and password == "yisroel"):
+         response = {}
+         response['authenticated'] = True
+         response['admin'] = True
+         return jsonify(response)
+    results = authenticate_user(username,password)
+    return jsonify(results)
 
 @app.route('/create_user', methods=['POST'])
 def create_account():
@@ -37,19 +26,24 @@ def create_account():
     grade = request.form.get('grade')
     username = request.form.get('username')
     password    = request.form.get('password')
-    does_exist = check_for_existance_of_user(username)
+    conn = sqlite3.connect('letter-game.db')
+    cursor = conn.cursor()
+    # Create  table
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users
+                    (id INTEGER PRIMARY KEY, firstname TEXT, lastname TEXT, grade TEXT, username TEXT, password TEXT)''')
+
+    cursor.execute("SELECT * FROM users WHERE username=?", (username,))
+    does_exist = cursor.fetchone()
+    # does_exist = check_for_existance_of_user(username)
     if(does_exist):
         data = {
         'message' : 'Username already exists!',
         'new_user' : None
         }
-        return jsonify(data),400
+        return jsonify(data),409
         
     conn = sqlite3.connect('letter-game.db')
-    # print(f'username is : {username}  and password :  {password}')
-    # Create a cursor object
     cursor = conn.cursor()
-
     # Create  table
     cursor.execute('''CREATE TABLE IF NOT EXISTS users
                     (id INTEGER PRIMARY KEY, firstname TEXT, lastname TEXT, grade TEXT, username TEXT, password TEXT)''')
@@ -105,28 +99,29 @@ def recordNewScore():
     username = data['username']
     points = data['points']
     letter_level = data['letter_level']
-    accumulative = data['accumulative']
-    letter_section = data['letter_section']
+    is_cumulative = data['is_cumulative']
+    selected_sections_index = data['selected_sections_index']
     lost_single_letter_game = data['lost_single_letter_game']
-    # print(f'username is : {username}  and password :  {password}')
-    # Create a cursor object
+
     cursor = conn.cursor()
     cursor.execute('''
 CREATE TABLE IF NOT EXISTS played_games (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username INTEGER NOT NULL,
+    username TEXT NOT NULL,
     points INTEGER NOT NULL,
     letter_level INTEGER NOT NULL,
-    accumulative BOOLEAN NOT NULL,
-    letters_section INTEGER NOT NULL,
+    selected_sections_index INTEGER NOT NULL,
+    is_cumulative BOOLEAN NOT NULL,
     one_letter_game_with_miss BOOLEAN NOT NULL,
     timestamp TEXT
    
 )
 ''')
+    now = datetime.now()
+    formatted_time = now.strftime("%Y-%m-%d %I:%M:%S %p").lower()
      # FOREIGN KEY (username) REFERENCES user (username)
-    cursor.execute("INSERT INTO attempts (username, points, letter_level, accumulative, letters_section,one_letter_game_with_miss,timestamp) VALUES (? , ?, ?,?,?,?,?)", (username,points,letter_level,accumulative,letter_section,lost_single_letter_game,datetime.now()))
-    cursor.execute("SELECT * from attempts")
+    cursor.execute("INSERT INTO played_games (username, points, letter_level, selected_sections_index,is_cumulative,one_letter_game_with_miss,timestamp) VALUES (? , ?, ?,?,?,?,?)", (username,points,letter_level,selected_sections_index ,is_cumulative,lost_single_letter_game,formatted_time))
+    # cursor.execute("SELECT * from attempts")
     
     # Fetch the stored password
     result = cursor.fetchone()
@@ -141,7 +136,43 @@ CREATE TABLE IF NOT EXISTS played_games (
     }
     return jsonify(data)
 
+@app.route('/scoreboard', methods=['GET'])
+def get_scoreboard():
+     conn = sqlite3.connect('letter-game.db')
+     cursor = conn.cursor()
+     cursor.execute('''
+        CREATE TABLE IF NOT EXISTS played_games (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        points INTEGER NOT NULL,
+        letter_level INTEGER NOT NULL,
+        is_cumulative BOOLEAN NOT NULL,
+        one_letter_game_with_miss BOOLEAN NOT NULL,
+        timestamp TEXT
+        )
+                    ''')
+     query = '''
+SELECT users.username, users.firstname, users.lastname, SUM(played_games.points) AS total_points
+FROM played_games
+JOIN users ON played_games.username = users.username
+GROUP BY users.username, users.firstname, users.lastname;
+'''
 
+     cursor.execute(query)
+     results = cursor.fetchall()
+     print(results)
+     users_points = []
+     for row in results:
+        users_points.append({
+            'username': row[0],
+            'firstname': row[1],
+            'lastname': row[2],
+            'total_points': row[3]
+        })
+
+     conn.close()
+     return jsonify(users_points)
+       
 def authenticate_user(username, password):
     # Connect to the SQLite database
     conn = sqlite3.connect('letter-game.db')
@@ -154,30 +185,62 @@ def authenticate_user(username, password):
     result = cursor.fetchone()
     
     conn.close()
-    
+    response = {}
     # If the username exists, result will not be None
     if result:
         stored_password = result[0]
         
         # Check if the provided password matches the stored password
         if password == stored_password:
-            return (True,"Authentication successful!")
+            response['authenticated'] = True
+            response['admin'] = False
+            return response
+            # return (True,"Authentication successful!")
         else:
-            return (False,"Invalid password.")
+            response['authenticated'] = False
+            response['admin'] = False
+            return response
     else:
-        return (False,"User not found.")
+        response['authenticated'] = False
+        response['admin']  = False
+        return response
 
 @app.route('/get_records', methods=['GET'])
 def get_game_records():
-    data = request.get_json()
-    username = data['user']
+    username = request.args['username']
     conn = sqlite3.connect('letter-game.db')
     cursor = conn.cursor()
-    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS played_games (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        points INTEGER NOT NULL,
+        letter_level INTEGER NOT NULL,
+        is_cumulative BOOLEAN NOT NULL,
+        one_letter_game_with_miss BOOLEAN NOT NULL,
+        timestamp TEXT
+        )
+                    ''')
     # Prepare the SQL query
-    cursor.execute("SELECT * FROM attempts WHERE username=?", (username,))
-    result = cursor.fetchone()
-    return jsonify(result),200
+    cursor.execute("SELECT * FROM  played_games WHERE username=?", (username,))
+    records = []
+    result = cursor.fetchall()
+    print(result)
+    for el in result:
+        record = {
+            "id": el[0],
+            "username": el[1],
+            "points":el[2],
+            "letter_level":el[3],
+            "selected_sections_index":el[4],
+            "is_cumulative":bool(el[5]),
+            "one_letter_game_with_miss":bool(el[6]),
+            "timestamp":el[7]
+
+        }
+        records.append(record)
+
+    return jsonify(records),200
 
 
 def check_for_existance_of_user(username):
